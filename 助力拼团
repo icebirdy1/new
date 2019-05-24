@@ -1,0 +1,76 @@
+select
+'${data_date}' as tj_date
+,'累计' as tj_type
+,sum(totalnum)
+,sum(old_num)
+,sum(old_sharenum)
+,sum(old_sharecnum)
+,sum(old_invitenum)
+,sum(old_invite_investnum)
+,sum(old_invite_investamount)
+,sum(old_inviteoldnum)
+,sum(new_num)
+,sum(new_sharenum)
+,sum(new_sharecnum)
+,sum(new_invitenum)
+,sum(new_invite_investnum)
+,sum(new_invite_investamount)
+,sum(new_inviteoldnum)
+,sum(total_new_investnum)
+,sum(total_new_investamount)
+,from_unixtime(unix_timestamp(),'yyyy-MM-dd HH:mm:ss') as etl_date
+from (
+ select
+  0 as totalnum
+  ,0 as old_num
+  ,count(distinct case when u.createtime < '2019-5-10' and ld.request_param = 'ZLPF,B1' then ld.user_id) as old_sharenum
+  ,count(case when u.createtime < '2019-5-10' and ld.request_param = 'ZLPF,B1' then ld.user_id) as old_sharecnum
+  ,0 as old_invitenum
+  ,0 as old_invite_investnum
+  ,0 as old_invite_investamount
+  ,0 as old_inviteoldnum
+  ,0 as new_num
+  ,count(distinct case when u.createtime >= '2019-5-10' and ld.request_param = 'ZLPF,B1' then ld.user_id) as new_sharenum
+  ,count(case when u.createtime >= '2019-5-10' and ld.request_param = 'ZLPF,B1' then ld.user_id) as new_sharecnum
+  ,0 as new_invitenum
+  ,0 as new_invite_investnum
+  ,0 as new_invite_investamount
+  ,0 as new_inviteoldnum
+  ,0 as total_new_investnum
+  ,0 as total_new_investamount
+ from dwd.dwd_flw_qyd_web_log_day ld
+ left join ${dw}.dw_user u
+ on ld.user_id=u.id
+ where ld.dt <= '${data_date}'
+ 
+ union all
+ 
+ select 
+  0 as totalnum
+  ,0 as old_num
+  ,0 as old_sharenum
+  ,0 as old_sharecnum
+  ,count(distinct case when u1.createtime < '2019-5-10' and u2.createtime >= r.create_time then r.booster else null end) as old_invitenum  --comment '老户邀请注册人数'
+  ,count(distinct case when u1.createtime < '2019-5-10' and u2.createtime >= r.create_time then t.payer_id else null end) as old_invite_investnum  --comment '老户邀请注册中投资人数'
+  ,sum(case when u1.createtime < '2019-5-10' and u2.createtime >= r.create_time then t.amount else 0 end) as old_invite_investamount  --comment '老户邀请注册中投资金额'
+  ,count(distinct case when u1.createtime < '2019-5-10' and u2.createtime < r.create_time then r.booster else null end) as old_inviteoldnum  --comment '老户邀请已注册用户助力人数'
+  ,0 as new_num
+  ,0 as new_sharenum
+  ,0 as new_sharecnum
+  ,count(distinct case when u1.createtime >= '2019-5-10' and u2.createtime >= r.create_time then r.booster else null end) as new_invitenum  --comment '新户邀请注册人数'
+  ,count(distinct case when u1.createtime >='2019-5-10' and u2.createtime >= r.create_time then t.payer_id else null end) as new_invite_investnum  --comment '新户邀请注册中投资人数'
+  ,sum(case when u1.createtime >= '2019-5-10' and u2.createtime >= r.create_time then t.amount else 0 end) as new_invite_investamount  --comment '新户邀请注册中投资金额'
+  ,count(distinct case when u1.createtime >= '2019-5-10' and u2.createtime < r.create_time then r.booster else null end) as new_inviteoldnum  --comment '新户邀请已注册用户助力人数'
+  ,count(distinct case when u2.createtime >= r.create_time then t.payer_id else null end) as total_new_investnum  --comment '全部新户投资人数'
+  ,sum(case when u2.createtime >= r.create_time then tf.amount else 0 end) as total_new_investamount  --comment '全部新户首次投资金额'
+ from qydactivity.activity_boost_relation_record r   -----------------------换成hive的表
+ left join ${dw}.dw_user u1    
+ on r.user_id=u1.id 
+ left join ${dw}.dw_user u2    
+ on r.booster=u2.id
+ left join ${dw}.dw_transaction_in t  
+ on r.booster=t.payer_id 
+ left join ${mid}.m_user_transfer_in_f tf
+ on r.booster=tf.payer_id
+ where to_date(r.create_time) <= '${data_date}'
+)
